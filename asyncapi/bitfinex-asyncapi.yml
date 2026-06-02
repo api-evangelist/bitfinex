@@ -1,0 +1,1394 @@
+asyncapi: 2.6.0
+info:
+  title: Bitfinex WebSocket API v2
+  version: '2.0.0'
+  description: |
+    AsyncAPI description of the Bitfinex public and authenticated WebSocket v2 API.
+
+    The Bitfinex WebSocket API streams real-time market data and authenticated
+    account information using a compact array-based message format. Clients
+    subscribe to channels by sending a JSON envelope; the server responds with
+    a `subscribed` confirmation containing a numeric `chanId`. All subsequent
+    payloads on that channel are JSON arrays whose first element is the
+    `chanId`.
+
+    Heartbeats are sent every 15 seconds as `[CHANNEL_ID, "hb"]`.
+
+    Source: https://docs.bitfinex.com/docs/ws-general and the public/auth
+    channel reference pages.
+  contact:
+    name: Bitfinex
+    url: https://docs.bitfinex.com/docs
+  license:
+    name: Bitfinex Terms of Service
+    url: https://www.bitfinex.com/legal/terms
+
+defaultContentType: application/json
+
+servers:
+  public:
+    url: api-pub.bitfinex.com/ws/2
+    protocol: wss
+    description: |
+      Public market-data WebSocket. Used for ticker, trades, books,
+      raw books, candles and derivatives/liquidation status channels.
+      Subscription limit: 30 public channels per connection.
+  auth:
+    url: api.bitfinex.com/ws/2
+    protocol: wss
+    description: |
+      Authenticated WebSocket. Required for account streams (orders,
+      positions, wallets, trades, funding offers/loans/credits/trades,
+      balance, margin, funding info, notifications). Connection rate
+      limit: 5 connections per 15 seconds.
+
+channels:
+  /ticker:
+    description: |
+      Ticker channel. Provides a high-level overview of the state of
+      the market for a specified trading pair or funding currency.
+      Subscribe with `{ "event": "subscribe", "channel": "ticker", "symbol": "<SYMBOL>" }`.
+      Trading symbols are prefixed with `t` (e.g. `tBTCUSD`); funding
+      currencies are prefixed with `f` (e.g. `fUSD`).
+    servers:
+      - public
+    bindings:
+      ws:
+        bindingVersion: '0.1.0'
+    subscribe:
+      operationId: receiveTicker
+      summary: Receive ticker snapshot, updates and heartbeats.
+      message:
+        oneOf:
+          - $ref: '#/components/messages/TradingTickerMessage'
+          - $ref: '#/components/messages/FundingTickerMessage'
+          - $ref: '#/components/messages/Heartbeat'
+    publish:
+      operationId: subscribeTicker
+      summary: Subscribe / unsubscribe to a ticker channel.
+      message:
+        oneOf:
+          - $ref: '#/components/messages/SubscribeTicker'
+          - $ref: '#/components/messages/Unsubscribe'
+
+  /trades:
+    description: |
+      Trades channel. Sends a message whenever a trade occurs on
+      Bitfinex. Funding currencies emit `fte`/`ftu` messages with an
+      additional PERIOD field.
+    servers:
+      - public
+    bindings:
+      ws:
+        bindingVersion: '0.1.0'
+    subscribe:
+      operationId: receiveTrades
+      message:
+        oneOf:
+          - $ref: '#/components/messages/TradesSnapshot'
+          - $ref: '#/components/messages/TradeUpdate'
+          - $ref: '#/components/messages/FundingTradesSnapshot'
+          - $ref: '#/components/messages/FundingTradeUpdate'
+          - $ref: '#/components/messages/Heartbeat'
+    publish:
+      operationId: subscribeTrades
+      message:
+        oneOf:
+          - $ref: '#/components/messages/SubscribeTrades'
+          - $ref: '#/components/messages/Unsubscribe'
+
+  /book:
+    description: |
+      Aggregated order book channel. Subscription parameters:
+      `prec` (P0/P1/P2/P3/P4, default P0), `freq` (F0 realtime or F1
+      every 2s, default F0), `len` (1/25/100/250, default 25),
+      and optional client-defined `subId`. For funding books the
+      AMOUNT sign convention is inverted (negative = bid, positive
+      = ask).
+    servers:
+      - public
+    bindings:
+      ws:
+        bindingVersion: '0.1.0'
+    subscribe:
+      operationId: receiveBook
+      message:
+        oneOf:
+          - $ref: '#/components/messages/TradingBookSnapshot'
+          - $ref: '#/components/messages/TradingBookUpdate'
+          - $ref: '#/components/messages/FundingBookSnapshot'
+          - $ref: '#/components/messages/FundingBookUpdate'
+          - $ref: '#/components/messages/ChecksumMessage'
+          - $ref: '#/components/messages/Heartbeat'
+    publish:
+      operationId: subscribeBook
+      message:
+        oneOf:
+          - $ref: '#/components/messages/SubscribeBook'
+          - $ref: '#/components/messages/Unsubscribe'
+
+  /book-raw:
+    description: |
+      Raw order book channel (PREC=R0). Tracks individual orders by
+      ID rather than aggregated price levels. For trading pairs a
+      PRICE of 0 means delete the order; for funding the same applies
+      to the order entry.
+    servers:
+      - public
+    bindings:
+      ws:
+        bindingVersion: '0.1.0'
+    subscribe:
+      operationId: receiveRawBook
+      message:
+        oneOf:
+          - $ref: '#/components/messages/TradingRawBookSnapshot'
+          - $ref: '#/components/messages/TradingRawBookUpdate'
+          - $ref: '#/components/messages/FundingRawBookSnapshot'
+          - $ref: '#/components/messages/FundingRawBookUpdate'
+          - $ref: '#/components/messages/ChecksumMessage'
+          - $ref: '#/components/messages/Heartbeat'
+    publish:
+      operationId: subscribeRawBook
+      message:
+        oneOf:
+          - $ref: '#/components/messages/SubscribeRawBook'
+          - $ref: '#/components/messages/Unsubscribe'
+
+  /candles:
+    description: |
+      Candles channel. Subscribe with a key of the form
+      `trade:TIMEFRAME:SYMBOL` (or
+      `trade:TIMEFRAME:SYMBOL:aAGGR:pPER_START:pEND` for funding).
+      Supported timeframes: 1m, 5m, 15m, 30m, 1h, 3h, 6h, 12h, 1D,
+      1W, 14D, 1M.
+    servers:
+      - public
+    bindings:
+      ws:
+        bindingVersion: '0.1.0'
+    subscribe:
+      operationId: receiveCandles
+      message:
+        oneOf:
+          - $ref: '#/components/messages/CandlesSnapshot'
+          - $ref: '#/components/messages/CandleUpdate'
+          - $ref: '#/components/messages/Heartbeat'
+    publish:
+      operationId: subscribeCandles
+      message:
+        oneOf:
+          - $ref: '#/components/messages/SubscribeCandles'
+          - $ref: '#/components/messages/Unsubscribe'
+
+  /status:
+    description: |
+      Platform status channel. Supports two key types:
+      `deriv:SYMBOL` for derivatives status (e.g.
+      `deriv:tBTCF0:USTF0`) and `liq:global` for the global
+      liquidation feed.
+    servers:
+      - public
+    bindings:
+      ws:
+        bindingVersion: '0.1.0'
+    subscribe:
+      operationId: receiveStatus
+      message:
+        oneOf:
+          - $ref: '#/components/messages/DerivativesStatusUpdate'
+          - $ref: '#/components/messages/LiquidationFeedUpdate'
+          - $ref: '#/components/messages/Heartbeat'
+    publish:
+      operationId: subscribeStatus
+      message:
+        oneOf:
+          - $ref: '#/components/messages/SubscribeStatus'
+          - $ref: '#/components/messages/Unsubscribe'
+
+  /account:
+    description: |
+      Authenticated account information channel (CHAN_ID = 0).
+      A single `auth` handshake on `wss://api.bitfinex.com/ws/2`
+      subscribes the client to streams for orders, positions,
+      wallets, trades, funding offers/loans/credits/trades,
+      balance info, margin info, funding info and notifications.
+      Optional `filter` array can restrict the streams delivered.
+    servers:
+      - auth
+    bindings:
+      ws:
+        bindingVersion: '0.1.0'
+    subscribe:
+      operationId: receiveAccount
+      summary: All account-stream messages on CHAN_ID = 0.
+      message:
+        oneOf:
+          - $ref: '#/components/messages/AuthSuccess'
+          - $ref: '#/components/messages/AuthFailure'
+          - $ref: '#/components/messages/OrderSnapshot'
+          - $ref: '#/components/messages/OrderNew'
+          - $ref: '#/components/messages/OrderUpdate'
+          - $ref: '#/components/messages/OrderCancel'
+          - $ref: '#/components/messages/PositionSnapshot'
+          - $ref: '#/components/messages/PositionNew'
+          - $ref: '#/components/messages/PositionUpdate'
+          - $ref: '#/components/messages/PositionClose'
+          - $ref: '#/components/messages/WalletSnapshot'
+          - $ref: '#/components/messages/WalletUpdate'
+          - $ref: '#/components/messages/AuthTradeExecuted'
+          - $ref: '#/components/messages/AuthTradeUpdate'
+          - $ref: '#/components/messages/FundingOfferSnapshot'
+          - $ref: '#/components/messages/FundingOfferNew'
+          - $ref: '#/components/messages/FundingOfferUpdate'
+          - $ref: '#/components/messages/FundingOfferCancel'
+          - $ref: '#/components/messages/FundingCreditSnapshot'
+          - $ref: '#/components/messages/FundingCreditNew'
+          - $ref: '#/components/messages/FundingCreditUpdate'
+          - $ref: '#/components/messages/FundingCreditClose'
+          - $ref: '#/components/messages/FundingLoanSnapshot'
+          - $ref: '#/components/messages/FundingLoanNew'
+          - $ref: '#/components/messages/FundingLoanUpdate'
+          - $ref: '#/components/messages/FundingLoanClose'
+          - $ref: '#/components/messages/FundingTradeExecuted'
+          - $ref: '#/components/messages/FundingTradeUpdateMsg'
+          - $ref: '#/components/messages/BalanceUpdate'
+          - $ref: '#/components/messages/MarginInfoUpdate'
+          - $ref: '#/components/messages/FundingInfoUpdate'
+          - $ref: '#/components/messages/Notification'
+          - $ref: '#/components/messages/Heartbeat'
+    publish:
+      operationId: authenticateAccount
+      summary: Authentication handshake and connection-level config.
+      message:
+        oneOf:
+          - $ref: '#/components/messages/AuthRequest'
+          - $ref: '#/components/messages/ConfRequest'
+          - $ref: '#/components/messages/PingRequest'
+
+components:
+  messages:
+    # ---- Connection / control envelopes ----
+    SubscribeTicker:
+      name: SubscribeTicker
+      title: Subscribe (ticker)
+      summary: Subscribe to the ticker channel for a symbol.
+      payload:
+        type: object
+        required: [event, channel, symbol]
+        properties:
+          event: { type: string, const: subscribe }
+          channel: { type: string, const: ticker }
+          symbol: { type: string, description: 'Trading pair (tBTCUSD) or funding currency (fUSD)' }
+          subId: { type: string }
+      examples:
+        - payload:
+            event: subscribe
+            channel: ticker
+            symbol: tBTCUSD
+
+    SubscribeTrades:
+      name: SubscribeTrades
+      title: Subscribe (trades)
+      payload:
+        type: object
+        required: [event, channel, symbol]
+        properties:
+          event: { type: string, const: subscribe }
+          channel: { type: string, const: trades }
+          symbol: { type: string }
+          subId: { type: string }
+
+    SubscribeBook:
+      name: SubscribeBook
+      title: Subscribe (book)
+      payload:
+        type: object
+        required: [event, channel, symbol]
+        properties:
+          event: { type: string, const: subscribe }
+          channel: { type: string, const: book }
+          symbol: { type: string }
+          prec:
+            type: string
+            enum: [P0, P1, P2, P3, P4]
+            default: P0
+          freq:
+            type: string
+            enum: [F0, F1]
+            default: F0
+          len:
+            type: string
+            enum: ['1', '25', '100', '250']
+            default: '25'
+          subId: { type: string }
+
+    SubscribeRawBook:
+      name: SubscribeRawBook
+      title: Subscribe (raw book)
+      payload:
+        type: object
+        required: [event, channel, symbol, prec]
+        properties:
+          event: { type: string, const: subscribe }
+          channel: { type: string, const: book }
+          symbol: { type: string }
+          prec: { type: string, const: R0 }
+          len:
+            type: string
+            enum: ['1', '25', '100', '250']
+            default: '25'
+          subId: { type: string }
+
+    SubscribeCandles:
+      name: SubscribeCandles
+      title: Subscribe (candles)
+      payload:
+        type: object
+        required: [event, channel, key]
+        properties:
+          event: { type: string, const: subscribe }
+          channel: { type: string, const: candles }
+          key:
+            type: string
+            description: 'trade:TIMEFRAME:SYMBOL[:aAGGR:pPER_START:pEND]'
+            example: 'trade:1m:tBTCUSD'
+
+    SubscribeStatus:
+      name: SubscribeStatus
+      title: Subscribe (status)
+      payload:
+        type: object
+        required: [event, channel, key]
+        properties:
+          event: { type: string, const: subscribe }
+          channel: { type: string, const: status }
+          key:
+            type: string
+            description: 'Either deriv:SYMBOL (e.g. deriv:tBTCF0:USTF0) or liq:global.'
+
+    Unsubscribe:
+      name: Unsubscribe
+      title: Unsubscribe from a channel
+      payload:
+        type: object
+        required: [event, chanId]
+        properties:
+          event: { type: string, const: unsubscribe }
+          chanId: { type: integer }
+
+    ConfRequest:
+      name: ConfRequest
+      title: Connection configuration
+      summary: |
+        Set per-connection feature flags. Sum the flag values to
+        enable multiple features.
+      payload:
+        type: object
+        required: [event, flags]
+        properties:
+          event: { type: string, const: conf }
+          flags:
+            type: integer
+            description: |
+              Bitmask of feature flags:
+                * 32768  (TIMESTAMP)   - prepend MTS to every event
+                * 65536  (SEQ_ALL)     - add sequence numbers
+                * 131072 (OB_CHECKSUM) - emit checksum per book iteration
+                * 536870912 (BULK_UPDATES) - multiple book updates per msg
+
+    PingRequest:
+      name: PingRequest
+      title: Application-level ping
+      payload:
+        type: object
+        required: [event]
+        properties:
+          event: { type: string, const: ping }
+          cid: { type: integer }
+
+    AuthRequest:
+      name: AuthRequest
+      title: Authenticate
+      summary: |
+        Authenticate the connection. `authSig` is an HMAC-SHA384 of
+        `authPayload` keyed with the API secret. `authPayload` is
+        conventionally `"AUTH" + authNonce`. Optional `filter`
+        restricts which account streams are delivered. Optional `dms`
+        enables the Dead-Man-Switch (value 4 cancels open orders on
+        disconnect).
+      payload:
+        type: object
+        required: [event, apiKey, authSig, authNonce, authPayload]
+        properties:
+          event: { type: string, const: auth }
+          apiKey: { type: string }
+          authSig:
+            type: string
+            description: HMAC-SHA384 hex digest of authPayload signed with the API secret.
+          authNonce:
+            type: string
+            description: Strictly increasing integer (<= 9007199254740991) as string.
+          authPayload:
+            type: string
+            description: Typically `"AUTH" + authNonce`.
+          filter:
+            type: array
+            items:
+              type: string
+              enum:
+                - trading
+                - trading-tBTCUSD
+                - funding
+                - funding-fUSD
+                - wallet
+                - wallet-exchange
+                - wallet-trading
+                - wallet-deposit
+                - algo
+                - balance
+                - notify
+          dms:
+            type: integer
+            description: '4 = cancel all open orders on disconnect.'
+          calc:
+            type: integer
+
+    AuthSuccess:
+      name: AuthSuccess
+      title: Authentication succeeded
+      payload:
+        type: object
+        properties:
+          event: { type: string, const: auth }
+          status: { type: string, const: OK }
+          chanId: { type: integer, const: 0 }
+          userId: { type: integer }
+          authId: { type: string }
+          caps: { type: object }
+
+    AuthFailure:
+      name: AuthFailure
+      title: Authentication failed
+      payload:
+        type: object
+        properties:
+          event: { type: string, const: auth }
+          status: { type: string, const: FAILED }
+          msg: { type: string }
+          code: { type: integer }
+
+    # ---- Public channel payloads ----
+    Heartbeat:
+      name: Heartbeat
+      title: Channel heartbeat
+      summary: '[CHANNEL_ID, "hb"] - sent every 15 seconds of inactivity.'
+      payload:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - { type: string, const: hb }
+
+    ChecksumMessage:
+      name: ChecksumMessage
+      title: Book checksum
+      summary: '[CHANNEL_ID, "cs", CHECKSUM] - emitted when OB_CHECKSUM is enabled.'
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - { type: string, const: cs }
+          - { type: integer, description: Signed CRC32 of the book state. }
+
+    TradingTickerMessage:
+      name: TradingTickerMessage
+      title: Trading ticker
+      payload:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - $ref: '#/components/schemas/TradingTickerArray'
+
+    FundingTickerMessage:
+      name: FundingTickerMessage
+      title: Funding ticker
+      payload:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - $ref: '#/components/schemas/FundingTickerArray'
+
+    TradesSnapshot:
+      name: TradesSnapshot
+      title: Trades snapshot
+      payload:
+        type: array
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - type: array
+            items:
+              $ref: '#/components/schemas/TradeArray'
+
+    TradeUpdate:
+      name: TradeUpdate
+      title: Trade executed / updated (te / tu)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - { type: string, enum: [te, tu] }
+          - $ref: '#/components/schemas/TradeArray'
+
+    FundingTradesSnapshot:
+      name: FundingTradesSnapshot
+      title: Funding trades snapshot
+      payload:
+        type: array
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - type: array
+            items:
+              $ref: '#/components/schemas/FundingTradeArray'
+
+    FundingTradeUpdate:
+      name: FundingTradeUpdate
+      title: Funding trade executed / updated (fte / ftu)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - { type: string, enum: [fte, ftu] }
+          - $ref: '#/components/schemas/FundingTradeArray'
+
+    TradingBookSnapshot:
+      name: TradingBookSnapshot
+      title: Aggregated trading book snapshot
+      payload:
+        type: array
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - type: array
+            items:
+              $ref: '#/components/schemas/BookEntryTrading'
+
+    TradingBookUpdate:
+      name: TradingBookUpdate
+      title: Aggregated trading book update
+      payload:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - $ref: '#/components/schemas/BookEntryTrading'
+
+    FundingBookSnapshot:
+      name: FundingBookSnapshot
+      title: Aggregated funding book snapshot
+      payload:
+        type: array
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - type: array
+            items:
+              $ref: '#/components/schemas/BookEntryFunding'
+
+    FundingBookUpdate:
+      name: FundingBookUpdate
+      title: Aggregated funding book update
+      payload:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - $ref: '#/components/schemas/BookEntryFunding'
+
+    TradingRawBookSnapshot:
+      name: TradingRawBookSnapshot
+      title: Raw trading book snapshot
+      payload:
+        type: array
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - type: array
+            items:
+              $ref: '#/components/schemas/RawBookEntryTrading'
+
+    TradingRawBookUpdate:
+      name: TradingRawBookUpdate
+      title: Raw trading book update
+      payload:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - $ref: '#/components/schemas/RawBookEntryTrading'
+
+    FundingRawBookSnapshot:
+      name: FundingRawBookSnapshot
+      title: Raw funding book snapshot
+      payload:
+        type: array
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - type: array
+            items:
+              $ref: '#/components/schemas/RawBookEntryFunding'
+
+    FundingRawBookUpdate:
+      name: FundingRawBookUpdate
+      title: Raw funding book update
+      payload:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - $ref: '#/components/schemas/RawBookEntryFunding'
+
+    CandlesSnapshot:
+      name: CandlesSnapshot
+      title: Candles snapshot
+      payload:
+        type: array
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - type: array
+            items:
+              $ref: '#/components/schemas/CandleArray'
+
+    CandleUpdate:
+      name: CandleUpdate
+      title: Candle update
+      payload:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - $ref: '#/components/schemas/CandleArray'
+
+    DerivativesStatusUpdate:
+      name: DerivativesStatusUpdate
+      title: Derivatives status update
+      payload:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - $ref: '#/components/schemas/DerivStatusArray'
+
+    LiquidationFeedUpdate:
+      name: LiquidationFeedUpdate
+      title: Liquidation feed update
+      payload:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          - { type: integer, description: CHANNEL_ID }
+          - type: array
+            items:
+              $ref: '#/components/schemas/LiquidationEntry'
+
+    # ---- Authenticated account messages ----
+    OrderSnapshot:
+      name: OrderSnapshot
+      title: Order snapshot (os)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: os }
+          - type: array
+            items:
+              $ref: '#/components/schemas/OrderArray'
+
+    OrderNew:
+      name: OrderNew
+      title: New order (on)
+      payload:
+        $ref: '#/components/schemas/OrderMessageEnvelope'
+
+    OrderUpdate:
+      name: OrderUpdate
+      title: Order update (ou)
+      payload:
+        $ref: '#/components/schemas/OrderMessageEnvelope'
+
+    OrderCancel:
+      name: OrderCancel
+      title: Order cancel (oc)
+      payload:
+        $ref: '#/components/schemas/OrderMessageEnvelope'
+
+    PositionSnapshot:
+      name: PositionSnapshot
+      title: Position snapshot (ps)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: ps }
+          - type: array
+            items:
+              $ref: '#/components/schemas/PositionArray'
+
+    PositionNew:
+      name: PositionNew
+      title: Position new (pn)
+      payload:
+        $ref: '#/components/schemas/PositionMessageEnvelope'
+
+    PositionUpdate:
+      name: PositionUpdate
+      title: Position update (pu)
+      payload:
+        $ref: '#/components/schemas/PositionMessageEnvelope'
+
+    PositionClose:
+      name: PositionClose
+      title: Position close (pc)
+      payload:
+        $ref: '#/components/schemas/PositionMessageEnvelope'
+
+    WalletSnapshot:
+      name: WalletSnapshot
+      title: Wallet snapshot (ws)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: ws }
+          - type: array
+            items:
+              $ref: '#/components/schemas/WalletArray'
+
+    WalletUpdate:
+      name: WalletUpdate
+      title: Wallet update (wu)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: wu }
+          - $ref: '#/components/schemas/WalletArray'
+
+    AuthTradeExecuted:
+      name: AuthTradeExecuted
+      title: Trade executed (te) - account
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: te }
+          - $ref: '#/components/schemas/AuthTradeArray'
+
+    AuthTradeUpdate:
+      name: AuthTradeUpdate
+      title: Trade update (tu) - account
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: tu }
+          - $ref: '#/components/schemas/AuthTradeArray'
+
+    FundingOfferSnapshot:
+      name: FundingOfferSnapshot
+      title: Funding offers snapshot (fos)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: fos }
+          - type: array
+            items:
+              $ref: '#/components/schemas/FundingOfferArray'
+
+    FundingOfferNew:
+      name: FundingOfferNew
+      title: New funding offer (fon)
+      payload:
+        $ref: '#/components/schemas/FundingOfferMessageEnvelope'
+
+    FundingOfferUpdate:
+      name: FundingOfferUpdate
+      title: Funding offer update (fou)
+      payload:
+        $ref: '#/components/schemas/FundingOfferMessageEnvelope'
+
+    FundingOfferCancel:
+      name: FundingOfferCancel
+      title: Funding offer cancel (foc)
+      payload:
+        $ref: '#/components/schemas/FundingOfferMessageEnvelope'
+
+    FundingCreditSnapshot:
+      name: FundingCreditSnapshot
+      title: Funding credits snapshot (fcs)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: fcs }
+          - type: array
+            items:
+              $ref: '#/components/schemas/FundingCreditArray'
+
+    FundingCreditNew:
+      name: FundingCreditNew
+      title: New funding credit (fcn)
+      payload:
+        $ref: '#/components/schemas/FundingCreditMessageEnvelope'
+
+    FundingCreditUpdate:
+      name: FundingCreditUpdate
+      title: Funding credit update (fcu)
+      payload:
+        $ref: '#/components/schemas/FundingCreditMessageEnvelope'
+
+    FundingCreditClose:
+      name: FundingCreditClose
+      title: Funding credit close (fcc)
+      payload:
+        $ref: '#/components/schemas/FundingCreditMessageEnvelope'
+
+    FundingLoanSnapshot:
+      name: FundingLoanSnapshot
+      title: Funding loans snapshot (fls)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: fls }
+          - type: array
+            items:
+              $ref: '#/components/schemas/FundingLoanArray'
+
+    FundingLoanNew:
+      name: FundingLoanNew
+      title: New funding loan (fln)
+      payload:
+        $ref: '#/components/schemas/FundingLoanMessageEnvelope'
+
+    FundingLoanUpdate:
+      name: FundingLoanUpdate
+      title: Funding loan update (flu)
+      payload:
+        $ref: '#/components/schemas/FundingLoanMessageEnvelope'
+
+    FundingLoanClose:
+      name: FundingLoanClose
+      title: Funding loan close (flc)
+      payload:
+        $ref: '#/components/schemas/FundingLoanMessageEnvelope'
+
+    FundingTradeExecuted:
+      name: FundingTradeExecuted
+      title: Funding trade executed (fte)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: fte }
+          - $ref: '#/components/schemas/AuthFundingTradeArray'
+
+    FundingTradeUpdateMsg:
+      name: FundingTradeUpdateMsg
+      title: Funding trade update (ftu)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: ftu }
+          - $ref: '#/components/schemas/AuthFundingTradeArray'
+
+    BalanceUpdate:
+      name: BalanceUpdate
+      title: Balance update (bu)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: bu }
+          - type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              - { type: number, description: AUM - total assets under management. }
+              - { type: number, description: AUM_NET - assets minus liabilities. }
+
+    MarginInfoUpdate:
+      name: MarginInfoUpdate
+      title: Margin info update (miu)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: miu }
+          - oneOf:
+              - $ref: '#/components/schemas/MarginInfoBase'
+              - $ref: '#/components/schemas/MarginInfoSym'
+
+    FundingInfoUpdate:
+      name: FundingInfoUpdate
+      title: Funding info update (fiu)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: fiu }
+          - $ref: '#/components/schemas/FundingInfoSym'
+
+    Notification:
+      name: Notification
+      title: Notification (n)
+      payload:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          - { type: integer, const: 0 }
+          - { type: string, const: n }
+          - $ref: '#/components/schemas/NotificationArray'
+
+  schemas:
+    # ---- Public channel array schemas ----
+    TradingTickerArray:
+      type: array
+      minItems: 10
+      maxItems: 10
+      description: |
+        [BID, BID_SIZE, ASK, ASK_SIZE, DAILY_CHANGE,
+         DAILY_CHANGE_RELATIVE, LAST_PRICE, VOLUME, HIGH, LOW]
+      items:
+        - { type: number, description: BID - highest current bid price. }
+        - { type: number, description: BID_SIZE - sum of top-25 bid sizes. }
+        - { type: number, description: ASK - lowest current ask price. }
+        - { type: number, description: ASK_SIZE - sum of top-25 ask sizes. }
+        - { type: number, description: DAILY_CHANGE - 24h price delta. }
+        - { type: number, description: DAILY_CHANGE_RELATIVE - 24h percent change. }
+        - { type: number, description: LAST_PRICE - last traded price. }
+        - { type: number, description: VOLUME - 24h volume. }
+        - { type: number, description: HIGH - 24h high. }
+        - { type: number, description: LOW - 24h low. }
+
+    FundingTickerArray:
+      type: array
+      minItems: 16
+      maxItems: 16
+      description: |
+        [FRR, BID, BID_PERIOD, BID_SIZE, ASK, ASK_PERIOD, ASK_SIZE,
+         DAILY_CHANGE, DAILY_CHANGE_RELATIVE, LAST_PRICE, VOLUME,
+         HIGH, LOW, _PLACEHOLDER, _PLACEHOLDER, FRR_AMOUNT_AVAILABLE]
+      items:
+        - { type: number, description: FRR - Flash Return Rate. }
+        - { type: number, description: BID - highest bid rate. }
+        - { type: integer, description: BID_PERIOD (days). }
+        - { type: number, description: BID_SIZE. }
+        - { type: number, description: ASK - lowest ask rate. }
+        - { type: integer, description: ASK_PERIOD (days). }
+        - { type: number, description: ASK_SIZE. }
+        - { type: number, description: DAILY_CHANGE. }
+        - { type: number, description: DAILY_CHANGE_RELATIVE. }
+        - { type: number, description: LAST_PRICE. }
+        - { type: number, description: VOLUME. }
+        - { type: number, description: HIGH. }
+        - { type: number, description: LOW. }
+        - { type: 'null' }
+        - { type: 'null' }
+        - { type: number, description: FRR_AMOUNT_AVAILABLE. }
+
+    TradeArray:
+      type: array
+      minItems: 4
+      maxItems: 4
+      description: '[ID, MTS, AMOUNT, PRICE]'
+      items:
+        - { type: integer, description: ID - trade ID. }
+        - { type: integer, description: MTS - epoch milliseconds. }
+        - { type: number, description: 'AMOUNT - signed: + buyer-initiated, - seller-initiated.' }
+        - { type: number, description: PRICE - execution price. }
+
+    FundingTradeArray:
+      type: array
+      minItems: 5
+      maxItems: 5
+      description: '[ID, MTS, AMOUNT, RATE, PERIOD]'
+      items:
+        - { type: integer, description: ID. }
+        - { type: integer, description: MTS. }
+        - { type: number, description: AMOUNT. }
+        - { type: number, description: RATE. }
+        - { type: integer, description: PERIOD. }
+
+    BookEntryTrading:
+      type: array
+      minItems: 3
+      maxItems: 3
+      description: '[PRICE, COUNT, AMOUNT] - COUNT=0 means delete.'
+      items:
+        - { type: number, description: PRICE. }
+        - { type: integer, description: COUNT - order count at level. }
+        - { type: number, description: 'AMOUNT - signed: + bid, - ask.' }
+
+    BookEntryFunding:
+      type: array
+      minItems: 4
+      maxItems: 4
+      description: '[RATE, PERIOD, COUNT, AMOUNT] - COUNT=0 means delete.'
+      items:
+        - { type: number, description: RATE. }
+        - { type: integer, description: PERIOD. }
+        - { type: integer, description: COUNT. }
+        - { type: number, description: 'AMOUNT - signed: - bid, + ask (inverted for funding).' }
+
+    RawBookEntryTrading:
+      type: array
+      minItems: 3
+      maxItems: 3
+      description: '[ORDER_ID, PRICE, AMOUNT] - PRICE=0 means delete.'
+      items:
+        - { type: integer, description: ORDER_ID. }
+        - { type: number, description: PRICE. }
+        - { type: number, description: 'AMOUNT - signed: + bid, - ask.' }
+
+    RawBookEntryFunding:
+      type: array
+      minItems: 4
+      maxItems: 4
+      description: '[OFFER_ID, PERIOD, RATE, AMOUNT]'
+      items:
+        - { type: integer, description: OFFER_ID. }
+        - { type: integer, description: PERIOD. }
+        - { type: number, description: RATE. }
+        - { type: number, description: 'AMOUNT - signed: - bid, + ask (inverted for funding).' }
+
+    CandleArray:
+      type: array
+      minItems: 6
+      maxItems: 6
+      description: '[MTS, OPEN, CLOSE, HIGH, LOW, VOLUME]'
+      items:
+        - { type: integer, description: MTS - millisecond timestamp. }
+        - { type: number, description: OPEN. }
+        - { type: number, description: CLOSE. }
+        - { type: number, description: HIGH. }
+        - { type: number, description: LOW. }
+        - { type: number, description: VOLUME. }
+
+    DerivStatusArray:
+      type: array
+      description: |
+        Derivatives status payload. Fields (with placeholders at the
+        positions Bitfinex documents as nulls):
+          [TIME_MS, null, DERIV_PRICE, SPOT_PRICE, null,
+           INSURANCE_FUND_BALANCE, null, NEXT_FUNDING_EVT_TIMESTAMP_MS,
+           NEXT_FUNDING_ACCRUED, NEXT_FUNDING_STEP, null,
+           CURRENT_FUNDING, null, null, MARK_PRICE, null, null,
+           OPEN_INTEREST, null, null, null, CLAMP_MIN, CLAMP_MAX]
+      items:
+        type: [number, 'null']
+
+    LiquidationEntry:
+      type: array
+      description: |
+        [MSG_TYPE, POS_ID, TIME_MS, null, SYMBOL, AMOUNT, BASE_PRICE,
+         null, IS_MATCH, IS_MARKET_SOLD, null, LIQUIDATION_PRICE]
+      items:
+        - { type: string, description: MSG_TYPE. }
+        - { type: integer, description: POS_ID. }
+        - { type: integer, description: TIME_MS. }
+        - { type: 'null' }
+        - { type: string, description: SYMBOL. }
+        - { type: number, description: AMOUNT. }
+        - { type: number, description: BASE_PRICE. }
+        - { type: 'null' }
+        - { type: integer, description: 'IS_MATCH - 1 if initial trigger.' }
+        - { type: integer, description: 'IS_MARKET_SOLD - 1 if executed by system.' }
+        - { type: 'null' }
+        - { type: number, description: LIQUIDATION_PRICE. }
+
+    # ---- Authenticated message envelopes ----
+    OrderMessageEnvelope:
+      type: array
+      minItems: 3
+      maxItems: 3
+      items:
+        - { type: integer, const: 0 }
+        - { type: string, enum: [on, ou, oc] }
+        - $ref: '#/components/schemas/OrderArray'
+
+    PositionMessageEnvelope:
+      type: array
+      minItems: 3
+      maxItems: 3
+      items:
+        - { type: integer, const: 0 }
+        - { type: string, enum: [pn, pu, pc] }
+        - $ref: '#/components/schemas/PositionArray'
+
+    FundingOfferMessageEnvelope:
+      type: array
+      minItems: 3
+      maxItems: 3
+      items:
+        - { type: integer, const: 0 }
+        - { type: string, enum: [fon, fou, foc] }
+        - $ref: '#/components/schemas/FundingOfferArray'
+
+    FundingCreditMessageEnvelope:
+      type: array
+      minItems: 3
+      maxItems: 3
+      items:
+        - { type: integer, const: 0 }
+        - { type: string, enum: [fcn, fcu, fcc] }
+        - $ref: '#/components/schemas/FundingCreditArray'
+
+    FundingLoanMessageEnvelope:
+      type: array
+      minItems: 3
+      maxItems: 3
+      items:
+        - { type: integer, const: 0 }
+        - { type: string, enum: [fln, flu, flc] }
+        - $ref: '#/components/schemas/FundingLoanArray'
+
+    # ---- Authenticated array payloads ----
+    OrderArray:
+      type: array
+      description: |
+        Order array (index documented by Bitfinex):
+        [0]ID, [1]GID, [2]CID, [3]SYMBOL, [4]MTS_CREATE,
+        [5]MTS_UPDATE, [6]AMOUNT, [7]AMOUNT_ORIG, [8]ORDER_TYPE,
+        [9]TYPE_PREV, [10]MTS_TIF, [11]_, [12]FLAGS,
+        [13]ORDER_STATUS, [14]_, [15]_, [16]PRICE, [17]PRICE_AVG,
+        [18]PRICE_TRAILING, [19]PRICE_AUX_LIMIT, [20]_, [21]_,
+        [22]_, [23]NOTIFY, [24]HIDDEN, [25]PLACED_ID, [26]_,
+        [27]_, [28]ROUTING, [29]_, [30]_, [31]META.
+      minItems: 32
+      items:
+        type: [string, number, integer, 'null', object]
+
+    PositionArray:
+      type: array
+      description: |
+        Position array:
+        [0]SYMBOL, [1]STATUS, [2]AMOUNT, [3]BASE_PRICE,
+        [4]MARGIN_FUNDING, [5]MARGIN_FUNDING_TYPE, [6]PL,
+        [7]PL_PERC, [8]PRICE_LIQ, [9]LEVERAGE, [10]FLAGS,
+        [11]POSITION_ID, [12]MTS_CREATE, [13]MTS_UPDATE,
+        [14]_, [15]TYPE, [16]_, [17]COLLATERAL,
+        [18]COLLATERAL_MIN, [19]META.
+      minItems: 20
+      items:
+        type: [string, number, integer, 'null', object]
+
+    WalletArray:
+      type: array
+      description: |
+        [WALLET_TYPE, CURRENCY, BALANCE, UNSETTLED_INTEREST,
+         BALANCE_AVAILABLE, DESCRIPTION, META]
+      minItems: 7
+      maxItems: 7
+      items:
+        - { type: string, description: 'WALLET_TYPE: exchange | margin | funding.' }
+        - { type: string, description: 'CURRENCY (e.g. USD).' }
+        - { type: number, description: BALANCE. }
+        - { type: number, description: UNSETTLED_INTEREST. }
+        - { type: [number, 'null'], description: BALANCE_AVAILABLE. }
+        - { type: [string, 'null'], description: 'DESCRIPTION of the ledger entry.' }
+        - { type: [object, 'null'], description: 'META - reason for update.' }
+
+    AuthTradeArray:
+      type: array
+      description: |
+        [ID, SYMBOL, MTS_CREATE, ORDER_ID, EXEC_AMOUNT, EXEC_PRICE,
+         ORDER_TYPE, ORDER_PRICE, MAKER, FEE, FEE_CURRENCY, CID].
+        FEE and FEE_CURRENCY are null on 'te' and populated on 'tu'.
+      minItems: 12
+      maxItems: 12
+      items:
+        - { type: integer, description: ID. }
+        - { type: string, description: SYMBOL. }
+        - { type: integer, description: MTS_CREATE. }
+        - { type: integer, description: ORDER_ID. }
+        - { type: number, description: EXEC_AMOUNT. }
+        - { type: number, description: EXEC_PRICE. }
+        - { type: string, description: ORDER_TYPE. }
+        - { type: number, description: ORDER_PRICE. }
+        - { type: integer, description: 'MAKER (1 = maker, -1 = taker).' }
+        - { type: [number, 'null'], description: FEE. }
+        - { type: [string, 'null'], description: FEE_CURRENCY. }
+        - { type: integer, description: CID. }
+
+    FundingOfferArray:
+      type: array
+      description: |
+        [0]OFFER_ID, [1]SYMBOL, [2]MTS_CREATED, [3]MTS_UPDATED,
+        [4]AMOUNT, [5]AMOUNT_ORIG, [6]OFFER_TYPE, [7]_, [8]_,
+        [9]FLAGS, [10]STATUS, [11]_, [12]_, [13]_, [14]RATE,
+        [15]PERIOD, [16]NOTIFY, [17]HIDDEN, [18]_, [19]RENEW,
+        [20]_.
+      minItems: 21
+      items:
+        type: [string, number, integer, 'null', object]
+
+    FundingCreditArray:
+      type: array
+      description: |
+        [0]CREDIT_ID, [1]SYMBOL, [2]SIDE, [3]MTS_CREATE,
+        [4]MTS_UPDATE, [5]AMOUNT, [6]FLAGS, [7]STATUS, [8]_,
+        [9]_, [10]_, [11]RATE, [12]PERIOD, [13]MTS_OPENING,
+        [14]MTS_LAST_PAYOUT, [15]NOTIFY, [16]HIDDEN, [17]_,
+        [18]RENEW, [19]RATE_REAL, [20]NO_CLOSE, [21]POSITION_PAIR.
+      minItems: 22
+      items:
+        type: [string, number, integer, 'null', object]
+
+    FundingLoanArray:
+      type: array
+      description: |
+        [0]LOAN_ID, [1]SYMBOL, [2]SIDE, [3]MTS_CREATE,
+        [4]MTS_UPDATE, [5]AMOUNT, [6]FLAGS, [7]STATUS, [8]_,
+        [9]_, [10]_, [11]RATE, [12]PERIOD, [13]MTS_OPENING,
+        [14]MTS_LAST_PAYOUT, [15]NOTIFY, [16]HIDDEN, [17]_,
+        [18]RENEW, [19]RATE_REAL, [20]NO_CLOSE.
+      minItems: 21
+      items:
+        type: [string, number, integer, 'null', object]
+
+    AuthFundingTradeArray:
+      type: array
+      description: '[ID, SYMBOL, MTS_CREATE, OFFER_ID, AMOUNT, RATE, PERIOD, MAKER]'
+      minItems: 8
+      maxItems: 8
+      items:
+        - { type: integer, description: ID. }
+        - { type: string, description: SYMBOL. }
+        - { type: integer, description: MTS_CREATE. }
+        - { type: integer, description: OFFER_ID. }
+        - { type: number, description: AMOUNT. }
+        - { type: number, description: RATE. }
+        - { type: integer, description: PERIOD. }
+        - { type: [integer, 'null'], description: 'MAKER (1 = maker, null = taker).' }
+
+    MarginInfoBase:
+      type: array
+      minItems: 2
+      maxItems: 2
+      description: |
+        ["base", [USER_PL, USER_SWAPS, MARGIN_BALANCE, MARGIN_NET,
+         MARGIN_REQUIRED]]
+      items:
+        - { type: string, const: base }
+        - type: array
+          minItems: 5
+          maxItems: 5
+          items:
+            - { type: number, description: USER_PL. }
+            - { type: number, description: USER_SWAPS. }
+            - { type: number, description: MARGIN_BALANCE. }
+            - { type: number, description: MARGIN_NET. }
+            - { type: number, description: MARGIN_REQUIRED. }
+
+    MarginInfoSym:
+      type: array
+      minItems: 3
+      maxItems: 3
+      description: |
+        ["sym", SYMBOL, [TRADABLE_BALANCE, GROSS_BALANCE, BUY, SELL,
+         null, null, null, null]]
+      items:
+        - { type: string, const: sym }
+        - { type: string, description: SYMBOL. }
+        - type: array
+          items:
+            - { type: number, description: TRADABLE_BALANCE. }
+            - { type: number, description: GROSS_BALANCE. }
+            - { type: number, description: BUY. }
+            - { type: number, description: SELL. }
+            - { type: 'null' }
+            - { type: 'null' }
+            - { type: 'null' }
+            - { type: 'null' }
+
+    FundingInfoSym:
+      type: array
+      minItems: 3
+      maxItems: 3
+      description: |
+        ["sym", SYMBOL, [YIELD_LOAN, YIELD_LEND, DURATION_LOAN,
+         DURATION_LEND]]
+      items:
+        - { type: string, const: sym }
+        - { type: string, description: SYMBOL. }
+        - type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            - { type: [number, 'null'], description: YIELD_LOAN. }
+            - { type: [number, 'null'], description: YIELD_LEND. }
+            - { type: [number, 'null'], description: DURATION_LOAN. }
+            - { type: [number, 'null'], description: DURATION_LEND. }
+
+    NotificationArray:
+      type: array
+      description: |
+        [MTS, TYPE, MESSAGE_ID, null, NOTIFY_INFO, CODE, STATUS, TEXT]
+      minItems: 8
+      maxItems: 8
+      items:
+        - { type: integer, description: MTS. }
+        - { type: string, description: 'TYPE (e.g. on-req, oc-req, uca, fon-req, foc-req).' }
+        - { type: [integer, 'null'], description: MESSAGE_ID. }
+        - { type: 'null' }
+        - { description: NOTIFY_INFO - payload-specific. }
+        - { type: [integer, 'null'], description: CODE. }
+        - { type: string, description: 'STATUS - SUCCESS | ERROR | FAILURE.' }
+        - { type: string, description: TEXT - human-readable. }
