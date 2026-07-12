@@ -25,10 +25,14 @@ apis:
       - type: AsyncAPI
         url: asyncapi/bitfinex-asyncapi.yml
 common:
+  - type: DomainSecurity
+    url: security/bitfinex-domain-security.yml
   - type: Website
     url: https://docs.bitfinex.com/docs
   - type: PublicAPIsListing
     url: https://github.com/public-apis/public-apis
+  - url: https://blog.bitfinex.com/feed/
+    type: Blog
 maintainers:
   - FN: Kin Lane
     email: kin@apievangelist.com
