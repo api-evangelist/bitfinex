@@ -35,11 +35,11 @@ x-tier-reason: bulk-registered-from-public-apis
 tags:
   - Cryptocurrency
   - Public APIs
+  - Real-Time
 apis:
   - name: Bitfinex
     description: "Cryptocurrency Trading Platform"
     humanURL: https://docs.bitfinex.com/docs
-    baseURL: https://docs.bitfinex.com/docs
     tags:
       - Cryptocurrency
     properties:
